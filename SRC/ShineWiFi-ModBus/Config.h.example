@@ -30,6 +30,22 @@
 // Enable direct modbus read/write support via the WebGUI. Enabling this is a potential security issue.
 #define ENABLE_MODBUS_COMMUNICATION 0
 
+// Modbus TCP gateway: makes the inverter reachable via standard Modbus TCP
+// (port 502) over the network. Requests are forwarded to the inverter 1:1.
+// Supported: FC 0x03/0x04 (read, up to 125 registers) and, if writing is
+// allowed, FC 0x06/0x10 (write, up to 64 registers).
+// Modbus TCP has no authentication. Only use it in a trusted network!
+#define MODBUS_TCP_SUPPORTED 1
+#define MODBUS_TCP_PORT 502
+// Allow write access (FC 0x06/0x10). Anybody in your network can then change
+// inverter settings. Disabled by default.
+#define MODBUS_TCP_ALLOW_WRITE 0
+// Max. number of simultaneous TCP clients (the inverter link is slow,
+// keep this small)
+#define MODBUS_TCP_MAX_CLIENTS 2
+// Only accept connections from this IP (optional)
+// #define MODBUS_TCP_ALLOWED_IP "192.168.178.10"
+
 // Define a NTP Server and TZ Info to automatically adjust the inverter date/time.
 // TZ Info can be found at: https://github.com/nayarsystems/posix_tz_db/blob/master/zones.csv
 #define DEFAULT_NTP_SERVER "europe.pool.ntp.org"

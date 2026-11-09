@@ -41,6 +41,10 @@ DoubleResetDetector* drd;
 #include <ArduinoOTA.h>
 #endif
 
+#if MODBUS_TCP_SUPPORTED == 1
+#include "ShineModbusTcp.h"
+#endif
+
 #if defined(DEFAULT_NTP_SERVER) && defined(DEFAULT_TZ_INFO)
 #include <time.h>
 extern "C" uint8_t sntp_getreachability(uint8_t);
@@ -57,6 +61,10 @@ WiFiClientSecure espClient;
 WiFiClient espClient;
 #endif
 ShineMqtt shineMqtt(espClient, Inverter);
+#endif
+
+#if MODBUS_TCP_SUPPORTED == 1
+ShineModbusTcp modbusTcp(Inverter);
 #endif
 
 #ifdef AP_BUTTON_PRESSED
@@ -463,6 +471,9 @@ void setup() {
   httpServer.on("/metrics", sendMetrics);
   httpServer.on("/startAp", startConfigAccessPoint);
   httpServer.on("/reboot", rebootESP);
+#if MODBUS_TCP_SUPPORTED == 1
+  httpServer.on("/modbusTcp", sendModbusTcpStatus);
+#endif
 #if ENABLE_MODBUS_COMMUNICATION == 1
   httpServer.on("/postCommunicationModbus", sendPostSite);
   httpServer.on("/postCommunicationModbus_p", HTTP_POST, handlePostData);
@@ -476,6 +487,9 @@ void setup() {
   Inverter.InitProtocol();
   InverterReconnect();
   httpServer.begin();
+#if MODBUS_TCP_SUPPORTED == 1
+  modbusTcp.begin();
+#endif
 
 #if defined(DEFAULT_NTP_SERVER) && defined(DEFAULT_TZ_INFO)
 #ifdef ESP32
@@ -575,6 +589,14 @@ void sendJsonSite(void) {
 
   sendJson(doc);
 }
+
+#if MODBUS_TCP_SUPPORTED == 1
+void sendModbusTcpStatus(void) {
+  DynamicJsonDocument doc(512);
+  modbusTcp.CreateStatusJson(doc);
+  sendJson(doc);
+}
+#endif
 
 void sendUiJsonSite(void) {
   DynamicJsonDocument doc(JSON_DOCUMENT_SIZE);
@@ -852,6 +874,10 @@ void loop() {
 #endif
 
   httpServer.handleClient();
+
+#if MODBUS_TCP_SUPPORTED == 1
+  modbusTcp.loop();
+#endif
 
   // Toggle green LED with 1 Hz (alive)
   // ------------------------------------------------------------

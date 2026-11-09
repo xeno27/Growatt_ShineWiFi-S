@@ -18,6 +18,7 @@ Firmware replacement for Growatt ShineWiFi-S (serial), ShineWiFi-X (USB) or cust
 * TLS support for ESP32
 * Debugging via Web and Telnet
 * Power limiting (allows zero export)
+* Modbus TCP gateway: standard Modbus TCP access to the inverter over the network (port 502)
 
 ## Screenshot
 
@@ -111,6 +112,35 @@ A possible configuration is described [in the documentation](Doc/Prometheus.md).
 
 To make use of this feature, `#define ENABLE_MODBUS_COMMUNICATION 1` must be set in `Config.h` (default: `0`).
 Then, once compiled and flashed, access `/postCommunicationModbus`.
+
+## Modbus TCP gateway
+
+With `#define MODBUS_TCP_SUPPORTED 1` in `Config.h` (default in `Config.h.example`) the stick acts as a
+Modbus TCP to Modbus RTU gateway. Any standard Modbus TCP client (Home Assistant, evcc, Node-RED, pymodbus, mbpoll, ...)
+can then talk to the inverter at `<ip>:502`. Each request is forwarded 1:1 to the inverter and the answer is sent back.
+
+| Setting | Default | Description |
+| --- | --- | --- |
+| `MODBUS_TCP_PORT` | `502` | TCP port |
+| `MODBUS_TCP_ALLOW_WRITE` | `0` | Allow FC 0x06 / 0x10 (write holding registers) |
+| `MODBUS_TCP_MAX_CLIENTS` | `2` | Simultaneous connections; when full, the connection idle for the longest time is dropped |
+| `MODBUS_TCP_ALLOWED_IP` | not set | Only accept connections from this IP |
+
+* Supported function codes: `0x03` read holding registers, `0x04` read input registers (up to 125 registers per request),
+  `0x06` / `0x10` write holding registers (up to 64 registers, only with `MODBUS_TCP_ALLOW_WRITE 1`).
+* The unit id is ignored, requests always go to the inverter (Modbus address 1).
+* Errors: inverter exceptions are passed through, no answer from the inverter results in exception `0x0B`
+  (reads are retried once before), an undetected inverter in `0x0A`, unsupported or disabled function codes in `0x01`.
+* Requests are handled in the main loop, so they never collide with the regular polling, MQTT or the web interface.
+  The serial link is slow (9600 baud on the ShineWiFi-S), so don't poll faster than about once per second.
+* Status (clients, requests, errors) is available at `http://<ip>/modbusTcp`.
+* Modbus TCP has no authentication. Only use it in a trusted network.
+
+Example:
+
+```bash
+mbpoll -m tcp -a 1 -t 3 -0 -r 0 -c 10 <ip>
+```
 
 ## Debugging
 

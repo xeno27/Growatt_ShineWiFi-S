@@ -373,6 +373,51 @@ bool Growatt::WriteHoldingRegFrag(uint16_t adr, uint8_t size, uint16_t* value) {
   return false;
 }
 
+uint8_t Growatt::ModbusRawRequest(uint8_t function, uint16_t adr, uint16_t qty,
+                                  uint16_t* data) {
+  /**
+   * @brief forward a raw register request to the inverter (used by the
+   *        Modbus TCP gateway)
+   * @param function modbus function code (0x03, 0x04, 0x06 or 0x10)
+   * @param adr start address
+   * @param qty number of registers (1..MODBUS_RAW_MAX_REGS)
+   * @param data read: receives qty registers, write: holds qty registers
+   * @returns ModbusMaster result code
+   */
+  if (qty == 0 || qty > MODBUS_RAW_MAX_REGS) {
+    return Modbus.ku8MBIllegalDataValue;
+  }
+#if SIMULATE_INVERTER != 1
+  uint8_t res;
+  switch (function) {
+    case 0x03:
+    case 0x04:
+      res = (function == 0x03) ? Modbus.readHoldingRegisters(adr, qty)
+                               : Modbus.readInputRegisters(adr, qty);
+      if (res == Modbus.ku8MBSuccess) {
+        for (uint16_t i = 0; i < qty; i++) {
+          data[i] = Modbus.getResponseBuffer(i);
+        }
+      }
+      return res;
+    case 0x06:
+      return Modbus.writeSingleRegister(adr, data[0]);
+    case 0x10:
+      for (uint16_t i = 0; i < qty; i++) {
+        Modbus.setTransmitBuffer(i, data[i]);
+      }
+      return Modbus.writeMultipleRegisters(adr, qty);
+    default:
+      return Modbus.ku8MBIllegalFunction;
+  }
+#else
+  (void)function;
+  (void)adr;
+  (void)data;
+  return Modbus.ku8MBResponseTimedOut;
+#endif
+}
+
 bool Growatt::ReadInputReg(uint16_t adr, uint16_t* result) {
 /**
  * @brief read 16b input register
