@@ -30,6 +30,13 @@ class Growatt {
   bool ReadHoldingRegFrag(uint16_t adr, uint8_t size, uint32_t* result);
   bool WriteHoldingReg(uint16_t adr, uint16_t value);
   bool WriteHoldingRegFrag(uint16_t adr, uint8_t size, uint16_t* value);
+  // Forward a raw register request (FC 0x03, 0x04, 0x06, 0x10) to the
+  // inverter. qty must not exceed MODBUS_RAW_MAX_REGS. Returns the
+  // ModbusMaster result code (0 = success, 0x01..0x04 = slave exception,
+  // 0xE0..0xE3 = communication error).
+  static const uint8_t MODBUS_RAW_MAX_REGS = 64;
+  uint8_t ModbusRawRequest(uint8_t function, uint16_t adr, uint16_t qty,
+                           uint16_t* data);
   bool GetSingleValueByName(const String& name, double& value);
   void CreateJson(JsonDocument& doc, const String& MacAddress,
                   const String& Hostname);
