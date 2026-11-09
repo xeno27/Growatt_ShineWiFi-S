@@ -77,6 +77,23 @@ copies or substantial portions of the Software. -->
             box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.4), 0 1px 1px rgba(0, 0, 0, 0.2);
             background:rgb(185, 43, 43);
         }
+
+        .doughnutRow {
+            display: flex;
+            flex-wrap: wrap;
+            justify-content: space-around;
+        }
+
+        .doughnutBox {
+            width: 45%;
+            min-width: 150px;
+        }
+
+        .infoLine {
+            font-size: .8rem;
+            color: #666;
+            text-align: center;
+        }
     </style>
 </head>
 
@@ -85,21 +102,37 @@ copies or substantial portions of the Software. -->
 
     <div><canvas id="powerChart"></canvas></div>
 
+    <div class="doughnutRow">
+        <div class="doughnutBox"><canvas id="batteryState"></canvas></div>
+        <div class="doughnutBox"><canvas id="powerUsage"></canvas></div>
+    </div>
+
     <div class="linkButtonBar">
         <a href="./status" class="linkButton">Json</a>
         <a href="./uiStatus" class="linkButton">UI Json</a>
         <a href="./metrics" class="linkButton">Metrics</a>
+        <a href="./modbusTcp" class="linkButton">Modbus TCP</a>
         <a href="./debug" class="linkButton">Log</a>
         <a onClick="return confirm('Starting config AP will disconnect you from the device. Are you sure?');" href="./startAp" class="linkButton yellow">Start Config AP</a>
         <a onClick="return confirm('This will reboot the Wifi Stick. Are you sure?');" href="./reboot" class="linkButton yellow">Reboot</a>
         <a href="./postCommunicationModbus" class="linkButton red">RW Modbus</a>
     </div>
 
+    <div id="ModbusTcpInfo" class="infoLine"></div>
+
     <div id="DataContainer"></div>
 
 <script>
     let initialised = false;
-    const powerchartelement = document.getElementById('powerChart');
+    const POLL_INTERVAL = 5000;
+    // keep the line chart from growing forever (5s * 720 = 1h)
+    const MAX_POINTS = 720;
+    // these values are plotted on the right axis (0..100)
+    const RIGHT_AXIS_KEYS = ['SOC', 'BatteryTemperature', 'InverterTemperature'];
+
+    let useGrid = 0;
+    let useBat = 0;
+    let localLoad = 0;
 
     const CHART_COLORS = {
         red: 'rgb(255, 99, 132)',
@@ -130,76 +163,205 @@ copies or substantial portions of the Software. -->
         datasets: [],
     };
 
-    let powerchart = new Chart(powerchartelement, {
+    const batData = {
+        labels: ['SOC', 'empty'],
+        datasets: [{
+            label: 'SOC',
+            data: [0, 100],
+            backgroundColor: [CHART_COLORS.grey, CHART_COLORS.grey],
+        }],
+    };
+
+    const usageData = {
+        labels: ['grid', 'battery', 'pv direct'],
+        datasets: [{
+            label: 'kWh today',
+            data: [0, 0, 0],
+            backgroundColor: [CHART_COLORS.red, CHART_COLORS.green, CHART_COLORS.orange],
+        }],
+    };
+
+    let powerchart = new Chart(document.getElementById('powerChart'), {
         type: 'line',
         data: powerchartData,
         options: {
+            animation: false,
             scales: {
                 y: {
                     beginAtZero: true
+                },
+                y1: {
+                    type: 'linear',
+                    display: true,
+                    position: 'right',
+                    min: 0.0,
+                    max: 100.0,
+                    grid: { drawOnChartArea: false }
                 }
             }
         }
     });
 
-    setInterval(function () {
+    let batchart = new Chart(document.getElementById('batteryState'), {
+        type: 'doughnut',
+        data: batData,
+        options: {
+            responsive: true,
+            plugins: {
+                legend: { position: 'top' },
+                title: { display: true, text: 'Battery state' }
+            }
+        },
+    });
+
+    let usagechart = new Chart(document.getElementById('powerUsage'), {
+        type: 'doughnut',
+        data: usageData,
+        options: {
+            responsive: true,
+            plugins: {
+                legend: { position: 'top' },
+                title: { display: true, text: 'Power usage today' }
+            }
+        },
+    });
+
+    function fillBatteryState(soc) {
+        let color;
+        if (soc < 30) {
+            color = CHART_COLORS.red;
+        } else if (soc < 50) {
+            color = CHART_COLORS.orange;
+        } else if (soc <= 75) {
+            color = CHART_COLORS.yellow;
+        } else {
+            color = CHART_COLORS.green;
+        }
+        batData.datasets[0].backgroundColor[0] = color;
+        batData.datasets[0].data[0] = soc;
+        batData.datasets[0].data[1] = 100.0 - soc;
+        batchart.update();
+    }
+
+    function fillUsage(grid, battery, load) {
+        let pvDirect = load - (grid + battery);
+        if (pvDirect < 0) {
+            pvDirect = 0;
+        }
+        usageData.datasets[0].data[0] = grid;
+        usageData.datasets[0].data[1] = battery;
+        usageData.datasets[0].data[2] = Math.round(pvDirect * 10) / 10;
+        usagechart.update();
+    }
+
+    function valueHtml(key, entry) {
+        return "<a href=\"./value/" + key + "\">" + key + "</a>: " +
+               entry[0] + "&#8239;" + entry[1];
+    }
+
+    function processData(obj) {
+        let date = new Date();
+        powerchartData.labels.push(date.toLocaleTimeString());
+        if (powerchartData.labels.length > MAX_POINTS) {
+            powerchartData.labels.shift();
+            for (let dset of powerchartData.datasets) {
+                dset.data.shift();
+            }
+        }
+
+        let container = document.getElementById("DataContainer");
+        if (initialised == false) {
+            initialised = true;
+            container.innerHTML = "";
+        }
+
+        for (let key in obj) {
+            let entry = obj[key];
+
+            // line chart
+            if (entry[2] == true) {
+                let dset = powerchartData.datasets.find(d => d.label == key);
+                if (dset === undefined) {
+                    dset = {
+                        label: key,
+                        data: [],
+                        fill: false,
+                        borderColor: namedColor(powerchartData.datasets.length),
+                        tension: 0.1,
+                        pointRadius: 0,
+                        yAxisID: RIGHT_AXIS_KEYS.includes(key) ? 'y1' : 'y',
+                    };
+                    // pad so that all datasets line up with the labels
+                    while (dset.data.length < powerchartData.labels.length - 1) {
+                        dset.data.push(null);
+                    }
+                    powerchartData.datasets.push(dset);
+                }
+                dset.data.push(entry[0]);
+            }
+
+            // data view
+            let element = document.getElementById(key);
+            if (element === null) {
+                element = document.createElement("p");
+                element.setAttribute("id", key);
+                container.appendChild(element);
+            }
+            element.innerHTML = valueHtml(key, entry);
+
+            // doughnuts
+            if (key == "SOC") {
+                fillBatteryState(entry[0]);
+            } else if (key == "EnergyToUserToday") {
+                useGrid = entry[0];
+            } else if (key == "DischargeEnergyToday") {
+                useBat = entry[0];
+            } else if (key == "LocalLoadEnergyToday") {
+                localLoad = entry[0];
+            }
+        }
+        fillUsage(useGrid, useBat, localLoad);
+        powerchart.update();
+    }
+
+    function poll() {
         var xhttp = new XMLHttpRequest();
         xhttp.onreadystatechange = function () {
             if (this.readyState == 4 && this.status == 200) {
-                // add data fields to the main page
-                var obj = JSON.parse(this.responseText);
-                // Add Date to chart x Axis
-                let date = new Date();
-                powerchartData.labels.push(date.getHours() + ":" + date.getMinutes() + ":" + date.getSeconds());
-                if (initialised == false) {
-                    initialised = true;
-                    // clear data view container just in case
-                    container = document.getElementById("DataContainer");
-                    container.innerHTML = "";
-                    // Add Data Labels to chart
-                    for (var key in obj) {
-                        if (obj[key][2] == true) {
-                            const newDataset = {
-                                label: key,
-                                data: [obj[key][0]],
-                                fill: false,
-                                borderColor: namedColor(powerchart.data.datasets.length),
-                                tension: 0.1
-                            };
-                            powerchartData.datasets.push(newDataset);
-                            powerchart.update();
-                        }
-                        // init dataview
-                        var element = document.createElement("p");
-                        element.innerHTML = "<a href=\"/value/" + key + "\">" + key + "</a>: " +
-                                            obj[key][0] + "&#8239;" + obj[key][1];
-                        element.setAttribute("id", key);
-                        container.appendChild(element);
-                    }
-                } else {
-                    // Update Data in chart
-                    for (var key in obj) {
-                        // find dataset in array
-                        if (obj[key][2] == true) {
-                            for (var dset in powerchartData.datasets) {
-                                let leb = powerchartData.datasets[dset].label;
-                                if (leb == key) {
-                                    powerchartData.datasets[dset].data.push(obj[key][0]);
-                                }
-                            }
-                        }
-                        // update data view
-                        var element = document.getElementById(key);
-                        element.innerHTML = "<a href=\"/value/" + key + "\">" + key + "</a>: " +
-                                            obj[key][0] + "&#8239;" + obj[key][1];
-                        powerchart.update();
-                    }
-                }
+                processData(JSON.parse(this.responseText));
             }
         }
         xhttp.open("GET", "./uiStatus", true);
         xhttp.send();
-    }, 5000);
+    }
+
+    function pollModbusTcp() {
+        var xhttp = new XMLHttpRequest();
+        xhttp.onreadystatechange = function () {
+            if (this.readyState != 4) {
+                return;
+            }
+            let info = document.getElementById("ModbusTcpInfo");
+            if (this.status != 200) {
+                info.innerHTML = "";
+                return;
+            }
+            let s = JSON.parse(this.responseText);
+            info.innerHTML = "Modbus TCP port " + s.port +
+                (s.write_enabled ? " (read/write)" : " (read only)") +
+                " &middot; clients: " + s.clients +
+                " &middot; requests: " + s.requests +
+                " &middot; errors: " + s.errors;
+        }
+        xhttp.open("GET", "./modbusTcp", true);
+        xhttp.send();
+    }
+
+    // fetch immediately instead of waiting for the first interval
+    poll();
+    pollModbusTcp();
+    setInterval(poll, POLL_INTERVAL);
+    setInterval(pollModbusTcp, 30000);
 </script>
 </body>
 </html>
