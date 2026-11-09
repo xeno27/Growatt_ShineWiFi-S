@@ -5,32 +5,36 @@
 #if MQTT_SUPPORTED == 1
 #include <Arduino.h>
 #include "ShineWifi.h"
+#include "Growatt.h"
 #include <PubSubClient.h>
 #include <stdbool.h>
-#include "WebDebug.h"
 
 typedef struct {
-  String mqttserver;
-  String mqttport;
-  String mqtttopic;
-  String mqttuser;
-  String mqttpwd;
+  String server;
+  String port;
+  String topic;
+  String user;
+  String pwd;
 } MqttConfig;
 
 class ShineMqtt {
  public:
-  ShineMqtt(WiFiClient& wc) : wifiClient(wc), mqttclient(wifiClient){};
+  ShineMqtt(WiFiClient& wc, Growatt& inverter);
   void mqttSetup(const MqttConfig& config);
   bool mqttReconnect();
-  void mqttPublish(const String& JsonString);
-  void updateMqttLed();
+  boolean mqttPublish(const String& JsonString);
+  boolean mqttPublish(JsonDocument& doc, String topic = "");
+  boolean mqttEnabled();
+  boolean mqttConnected();
+  void onMqttMessage(char* topic, byte* payload, unsigned int length);
   void loop();
 
  private:
   WiFiClient& wifiClient;
-  long previousConnectTryMillis = 0;
+  unsigned long previousConnectTryMillis = 0;
   MqttConfig mqttconfig;
   PubSubClient mqttclient;
+  Growatt& inverter;
   static String getId();
 };
 #endif

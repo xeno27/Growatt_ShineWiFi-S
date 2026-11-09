@@ -1,6 +1,8 @@
 #pragma once
 
 #include "Arduino.h"
+
+#include "Growatt.h"
 #include "GrowattTypes.h"
 
 // Growatt modbus protocol version 1.24 from 2020-08-04
@@ -57,6 +59,22 @@ typedef enum {
   P124_ECHARGE_TOTAL,
   P124_ETOLOCALLOAD_TODAY,
   P124_ETOLOCALLOAD_TOTAL,
+  P124_ACCHARGE_TODAY,
+  P124_ACCHARGE_TOTAL,
+  P124_INPUT_REGISTER_COUNT
 } eP124InputRegisters_t;
 
-void init_growatt124(sProtocolDefinition_t &Protocol);
+typedef enum { P124_Active_P_Rate } eP124HoldingRegisters_t;
+
+void init_growatt124(sProtocolDefinition_t& Protocol, Growatt& inverter);
+
+std::tuple<bool, String> getDateTime(const JsonDocument& req, JsonDocument& res,
+                                     Growatt& inverter);
+std::tuple<bool, String> updateDateTime(const JsonDocument& req,
+                                        JsonDocument& res, Growatt& inverter);
+std::tuple<bool, String> getPowerActiveRate(const JsonDocument& req,
+                                            JsonDocument& res,
+                                            Growatt& inverter);
+std::tuple<bool, String> setPowerActiveRate(const JsonDocument& req,
+                                            JsonDocument& res,
+                                            Growatt& inverter);

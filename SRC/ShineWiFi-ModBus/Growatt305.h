@@ -1,9 +1,10 @@
 #pragma once
 
 #include "Arduino.h"
+#include "Growatt.h"
 #include "GrowattTypes.h"
 
-// Growatt modbus protocol version 1.24 from 2020-08-04
+// Growatt MODBUS protocol V3.05 (2013-04-25)
 typedef enum {
   P305_I_STATUS = 0,
   P305_DC_POWER,
@@ -19,4 +20,4 @@ typedef enum {
   P305_TEMPERATURE,
 } eP305InputRegisters_t;
 
-void init_growatt305(sProtocolDefinition_t &Protocol);
+void init_growatt305(sProtocolDefinition_t& Protocol, Growatt& inverter);
